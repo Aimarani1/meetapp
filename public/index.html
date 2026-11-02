@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Meet</title>
+<style>
+:root{--bg:#101826;--panel:#18233a;--tile:#1f2d49;--line:#2b3b5c;--text:#eaf0fb;--muted:#93a3c2;--accent:#6fb8ff;--off:#f27d6b}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--text);font:16px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
+button,input{font:inherit}
+button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.screen{min-height:100%;display:flex;flex-direction:column}
+.hidden{display:none!important}
+
+/* Landing + pre-join */
+.center{margin:auto;width:min(440px,92vw);padding:24px 0}
+h1{font-size:2rem;line-height:1.15;margin:0 0 8px}
+p.sub{color:var(--muted);margin:0 0 24px}
+.field{width:100%;padding:14px;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--text);margin-bottom:12px}
+.btn{width:100%;padding:14px;border:0;border-radius:10px;background:var(--accent);color:#08121f;font-weight:700;cursor:pointer}
+.err{color:var(--off);min-height:1.4em;margin-top:8px}
+#preview{width:100%;aspect-ratio:4/3;background:var(--tile);border-radius:14px;object-fit:cover;margin-bottom:12px;transform:scaleX(-1)}
+
+/* Meeting */
+.top{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line)}
+.top b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.small{padding:8px 12px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--text);cursor:pointer}
+.main{flex:1;display:flex;min-height:0}
+.grid{flex:1;display:grid;gap:10px;padding:10px;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));grid-auto-rows:minmax(160px,1fr);overflow:auto}
+.grid.presenting{grid-template-columns:repeat(auto-fit,minmax(150px,1fr));grid-auto-rows:150px}
+.grid.presenting .tile.screen{grid-column:1/-1;grid-row:span 3;order:-1}
+.tile{position:relative;background:var(--tile);border-radius:12px;overflow:hidden;display:flex;align-items:center;justify-content:center;min-height:0}
+.tile video{width:100%;height:100%;object-fit:cover}
+.tile.screen video{object-fit:contain;background:#000}
+.tile.local.cam video{transform:scaleX(-1)}
+.avatar{width:64px;height:64px;border-radius:50%;background:var(--line);display:grid;place-items:center;font-size:1.6rem;font-weight:700}
+.label{position:absolute;left:8px;bottom:8px;background:rgba(10,16,28,.7);padding:3px 9px;border-radius:6px;font-size:.85rem}
+.tile.speaking{box-shadow:inset 0 0 0 3px var(--accent)}
+.chat{width:320px;border-left:1px solid var(--line);display:flex;flex-direction:column;background:var(--panel)}
+.msgs{flex:1;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:10px}
+.msg b{display:block;font-size:.8rem;color:var(--muted)}
+.chatform{display:flex;gap:8px;padding:10px;border-top:1px solid var(--line)}
+.chatform input{flex:1;padding:10px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
+.bar{display:flex;justify-content:center;gap:8px;padding:12px;border-top:1px solid var(--line);flex-wrap:wrap}
+.ctl{padding:11px 16px;border-radius:999px;border:1px solid var(--line);background:var(--panel);color:var(--text);cursor:pointer;min-width:84px}
+.ctl.off{background:var(--off);border-color:var(--off);color:#2a0c07;font-weight:600}
+.ctl.on{background:var(--accent);border-color:var(--accent);color:#08121f;font-weight:600}
+.ctl.leave{background:var(--off);border-color:var(--off);color:#2a0c07;font-weight:700}
+@media(max-width:760px){.chat{position:fixed;inset:0;width:auto;z-index:5}}
+</style>
+</head>
+<body>
+
+<!-- Home: start a meeting -->
+<section id="home" class="screen hidden">
+  <div class="center">
+    <h1>Start a meeting</h1>
+    <p class="sub">You get a link. Anyone with the link can join from their browser. No install, no account.</p>
+    <button class="btn" id="startBtn">Start new meeting</button>
+  </div>
+</section>
+
+<!-- Pre-join -->
+<section id="prejoin" class="screen hidden">
+  <div class="center">
+    <h1>Ready to join?</h1>
+    <p class="sub" id="roomLabel"></p>
+    <video id="preview" autoplay muted playsinline></video>
+    <input class="field" id="nameInput" placeholder="Your name" maxlength="40" autocomplete="name">
+    <button class="btn" id="joinBtn">Join meeting</button>
+    <div class="err" id="joinErr" role="alert"></div>
+  </div>
+</section>
+
+<!-- Meeting -->
+<section id="meeting" class="screen hidden" style="height:100%">
+  <div class="top">
+    <b id="roomTitle"></b>
+    <button class="small" id="copyBtn">Copy invite link</button>
+  </div>
+  <div class="main">
+    <div class="grid" id="grid"></div>
+    <aside class="chat hidden" id="chat" aria-label="Chat">
+      <div class="top"><b>Chat</b><button class="small" id="closeChat">Close</button></div>
+      <div class="msgs" id="msgs"></div>
+      <form class="chatform" id="chatForm">
+        <input id="chatInput" placeholder="Type a message" autocomplete="off" maxlength="500">
+        <button class="small" type="submit">Send</button>
+      </form>
+    </aside>
+  </div>
+  <div class="bar">
+    <button class="ctl" id="micBtn">Mute</button>
+    <button class="ctl" id="camBtn">Stop video</button>
+    <button class="ctl" id="shareBtn">Share screen</button>
+    <button class="ctl" id="chatBtn">Chat</button>
+    <button class="ctl leave" id="leaveBtn">Leave</button>
+  </div>
+  <div id="audioSink" class="hidden"></div>
+</section>
+
+<script src="https://cdn.jsdelivr.net/npm/livekit-client@2.5.7/dist/livekit-client.umd.min.js"></script>
+<script>
+const LK = window.LivekitClient;
+const $ = (id) => document.getElementById(id);
+const show = (id) => { for (const s of ['home','prejoin','meeting']) $(s).classList.toggle('hidden', s !== id); };
+
+const match = location.pathname.match(/^\/room\/([\w-]+)/);
+const roomId = match && match[1];
+let room, previewStream, micOn = true, camOn = true;
+
+/* ---------- Home ---------- */
+function makeId() {
+  const c = 'abcdefghijkmnpqrstuvwxyz23456789', r = (n) => Array.from({length:n}, () => c[Math.floor(Math.random()*c.length)]).join('');
+  return `${r(3)}-${r(4)}-${r(3)}`;
+}
+$('startBtn').onclick = () => { location.href = '/room/' + makeId(); };
+
+/* ---------- Pre-join ---------- */
+async function startPreview() {
+  try {
+    previewStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    $('preview').srcObject = previewStream;
+  } catch (e) {
+    $('joinErr').textContent = 'Camera or microphone is blocked. Allow access in your browser settings, or join without them.';
+  }
+}
+$('nameInput').value = localStorage.getItem('meetName') || '';
+
+$('joinBtn').onclick = async () => {
+  const name = $('nameInput').value.trim();
+  if (!name) { $('joinErr').textContent = 'Enter your name to join.'; $('nameInput').focus(); return; }
+  localStorage.setItem('meetName', name);
+  $('joinBtn').disabled = true;
+  $('joinErr').textContent = '';
+  try {
+    const res = await fetch(`/api/token?room=${encodeURIComponent(roomId)}&name=${encodeURIComponent(name)}`);
+    if (!res.ok) throw new Error('Could not get a join token.');
+    const { token, url } = await res.json();
+    if (previewStream) previewStream.getTracks().forEach((t) => t.stop());
+    await joinRoom(url, token, name);
+  } catch (e) {
+    $('joinErr').textContent = e.message || 'Could not join. Check your connection and try again.';
+    $('joinBtn').disabled = false;
+  }
+};
+
+/* ---------- Meeting ---------- */
+async function joinRoom(url, token, name) {
+  room = new LK.Room({ adaptiveStream: true, dynacast: true });
+  const { RoomEvent } = LK;
+  room
+    .on(RoomEvent.TrackSubscribed, reconcile)
+    .on(RoomEvent.TrackUnsubscribed, reconcile)
+    .on(RoomEvent.TrackMuted, reconcile)
+    .on(RoomEvent.TrackUnmuted, reconcile)
+    .on(RoomEvent.LocalTrackPublished, reconcile)
+    .on(RoomEvent.LocalTrackUnpublished, reconcile)
+    .on(RoomEvent.ParticipantConnected, reconcile)
+    .on(RoomEvent.ParticipantDisconnected, reconcile)
+    .on(RoomEvent.ActiveSpeakersChanged, markSpeakers)
+    .on(RoomEvent.DataReceived, onData)
+    .on(RoomEvent.Disconnected, () => { location.href = '/'; });
+
+  await room.connect(url, token);
+  show('meeting');
+  $('roomTitle').textContent = roomId;
+
+  // Publish devices; if blocked, still stay in the meeting.
+  try { await room.localParticipant.setMicrophoneEnabled(true); } catch { micOn = false; syncButtons(); }
+  try { await room.localParticipant.setCameraEnabled(true); } catch { camOn = false; syncButtons(); }
+  if (!navigator.mediaDevices.getDisplayMedia) $('shareBtn').classList.add('hidden');
+  reconcile();
+}
+
+const tiles = new Map(); // key -> {el, sid}
+function initial(n) { return (n || '?').trim().charAt(0).toUpperCase(); }
+
+function ensureTile(key, p, track, isScreen) {
+  const sid = track ? track.sid : 'none';
+  let t = tiles.get(key);
+  const name = isScreen ? `${p.name || p.identity} (screen)` : (p.name || p.identity) + (p.isLocal ? ' (you)' : '');
+  if (!t || t.sid !== sid) {
+    if (t) t.el.remove();
+    const el = document.createElement('div');
+    el.className = 'tile' + (isScreen ? ' screen' : ' cam') + (p.isLocal ? ' local' : '');
+    el.dataset.identity = p.identity;
+    if (track) {
+      const v = track.attach();
+      v.muted = true; v.playsInline = true; v.autoplay = true;
+      el.appendChild(v);
+    } else {
+      const a = document.createElement('div');
+      a.className = 'avatar';
+      a.textContent = initial(p.name || p.identity);
+      el.appendChild(a);
+    }
+    const l = document.createElement('div');
+    l.className = 'label';
+    el.appendChild(l);
+    $('grid').appendChild(el);
+    t = { el, sid };
+    tiles.set(key, t);
+  }
+  t.el.querySelector('.label').textContent = name;
+  return t;
+}
+
+function reconcile() {
+  if (!room) return;
+  const { Track } = LK;
+  const parts = [room.localParticipant, ...room.remoteParticipants.values()];
+  const want = new Set();
+  let presenting = false;
+
+  for (const p of parts) {
+    const cam = p.getTrackPublication(Track.Source.Camera);
+    const scr = p.getTrackPublication(Track.Source.ScreenShare);
+    const camTrack = cam && cam.track && !cam.isMuted ? cam.track : null;
+    ensureTile(p.identity + ':cam', p, camTrack, false);
+    want.add(p.identity + ':cam');
+    if (scr && scr.track) {
+      ensureTile(p.identity + ':screen', p, scr.track, true);
+      want.add(p.identity + ':screen');
+      presenting = true;
+    }
+    // Remote audio
+    if (!p.isLocal) {
+      const mic = p.getTrackPublication(Track.Source.Microphone);
+      if (mic && mic.track && !mic.track._sunk) {
+        const a = mic.track.attach();
+        mic.track._sunk = true;
+        $('audioSink').appendChild(a);
+      }
+    }
+  }
+  for (const [key, t] of tiles) {
+    if (!want.has(key)) { t.el.remove(); tiles.delete(key); }
+  }
+  $('grid').classList.toggle('presenting', presenting);
+  micOn = room.localParticipant.isMicrophoneEnabled;
+  camOn = room.localParticipant.isCameraEnabled;
+  $('shareBtn').classList.toggle('on', room.localParticipant.isScreenShareEnabled);
+  $('shareBtn').textContent = room.localParticipant.isScreenShareEnabled ? 'Stop sharing' : 'Share screen';
+  syncButtons();
+}
+
+function markSpeakers(speakers) {
+  const ids = new Set(speakers.map((s) => s.identity));
+  for (const [key, t] of tiles) t.el.classList.toggle('speaking', key.endsWith(':cam') && ids.has(t.el.dataset.identity));
+}
+
+function syncButtons() {
+  $('micBtn').textContent = micOn ? 'Mute' : 'Unmute';
+  $('micBtn').classList.toggle('off', !micOn);
+  $('camBtn').textContent = camOn ? 'Stop video' : 'Start video';
+  $('camBtn').classList.toggle('off', !camOn);
+}
+
+$('micBtn').onclick = async () => { await room.localParticipant.setMicrophoneEnabled(!micOn); reconcile(); };
+$('camBtn').onclick = async () => { await room.localParticipant.setCameraEnabled(!camOn); reconcile(); };
+$('shareBtn').onclick = async () => {
+  try { await room.localParticipant.setScreenShareEnabled(!room.localParticipant.isScreenShareEnabled); }
+  catch { /* user cancelled the picker */ }
+  reconcile();
+};
+$('leaveBtn').onclick = () => room.disconnect();
+$('copyBtn').onclick = async () => {
+  await navigator.clipboard.writeText(location.href);
+  $('copyBtn').textContent = 'Link copied';
+  setTimeout(() => ($('copyBtn').textContent = 'Copy invite link'), 1800);
+};
+
+/* ---------- Chat ---------- */
+const enc = new TextEncoder(), dec = new TextDecoder();
+function addMsg(who, text) {
+  const d = document.createElement('div');
+  d.className = 'msg';
+  const b = document.createElement('b'); b.textContent = who;
+  const s = document.createElement('span'); s.textContent = text;
+  d.append(b, s);
+  $('msgs').appendChild(d);
+  $('msgs').scrollTop = $('msgs').scrollHeight;
+}
+function onData(payload, participant) {
+  try {
+    const m = JSON.parse(dec.decode(payload));
+    addMsg(participant?.name || 'Guest', String(m.text).slice(0, 500));
+    if ($('chat').classList.contains('hidden')) $('chatBtn').textContent = 'Chat •';
+  } catch {}
+}
+$('chatBtn').onclick = () => { $('chat').classList.toggle('hidden'); $('chatBtn').textContent = 'Chat'; };
+$('closeChat').onclick = () => $('chat').classList.add('hidden');
+$('chatForm').onsubmit = async (e) => {
+  e.preventDefault();
+  const text = $('chatInput').value.trim();
+  if (!text) return;
+  await room.localParticipant.publishData(enc.encode(JSON.stringify({ text })), { reliable: true });
+  addMsg('You', text);
+  $('chatInput').value = '';
+};
+
+/* ---------- Boot ---------- */
+if (roomId) {
+  $('roomLabel').textContent = `Meeting ${roomId}`;
+  show('prejoin');
+  startPreview();
+} else {
+  show('home');
+}
+</script>
+</body>
+</html>
